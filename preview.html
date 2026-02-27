@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Flashcards</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<style>
+:root{
+  --bg:#0b0b13;
+  --surface:#161623;
+  --border:#26263a;
+  --accent:#7c3aed;
+  --text:#e4e6f5;
+  --dim:#7e8aa8;
+  --glass:rgba(20,20,30,.65);
+}
+
+body{
+  margin:0;
+  font-family:system-ui;
+  background:var(--bg);
+  color:var(--text);
+  height:100vh;
+  display:flex;
+}
+
+body.transparent{
+  background:transparent;
+}
+
+#sidebar{
+  width:220px;
+  border-right:1px solid var(--border);
+  padding:1rem;
+  display:flex;
+  flex-direction:column;
+  gap:.5rem;
+}
+
+.folder{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  cursor:pointer;
+  padding:.4rem .6rem;
+  border-radius:8px;
+}
+
+.folder:hover{
+  background:var(--surface);
+}
+
+#main{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+#topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:.8rem 1rem;
+  border-bottom:1px solid var(--border);
+}
+
+#deckGrid{
+  padding:1rem;
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:1rem;
+}
+
+.deckCard{
+  padding:1rem;
+  border:1px solid var(--border);
+  border-radius:12px;
+  cursor:pointer;
+}
+
+.deckCard:hover{
+  border-color:var(--accent);
+}
+
+#cardView{
+  flex:1;
+  display:none;
+  flex-direction:column;
+}
+
+.scene{
+  flex:1;
+  perspective:1200px;
+  padding:1rem;
+}
+
+.card{
+  width:100%;
+  height:100%;
+  position:relative;
+  transform-style:preserve-3d;
+  transition:.5s;
+}
+
+.card.flipped{
+  transform:rotateY(180deg);
+}
+
+.face{
+  position:absolute;
+  inset:0;
+  backface-visibility:hidden;
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:2rem;
+  overflow:auto;
+  background:var(--surface);
+}
+
+body.transparent .face{
+  background:var(--glass);
+  backdrop-filter:blur(20px);
+}
+
+.face.back{
+  transform:rotateY(180deg);
+}
+
+.controls{
+  display:flex;
+  justify-content:center;
+  gap:1rem;
+  padding:.6rem;
+}
+
+button{
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--text);
+  padding:.5rem 1rem;
+  border-radius:8px;
+  cursor:pointer;
+}
+
+button:hover{
+  border-color:var(--accent);
+}
+
+.progress{
+  height:2px;
+  background:var(--border);
+}
+
+.progressFill{
+  height:100%;
+  background:var(--accent);
+  width:0%;
+}
+</style>
+</head>
+<body>
+
+<div id="sidebar"></div>
+
+<div id="main">
+  <div id="topbar">
+    <div>Flashcards</div>
+    <button onclick="toggleTransparency()">◐</button>
+  </div>
+
+  <div id="deckGrid"></div>
+
+  <div id="cardView">
+    <div class="progress"><div class="progressFill" id="progressFill"></div></div>
+    <div class="scene" onclick="flip()">
+      <div class="card" id="card">
+        <div class="face front" id="front"></div>
+        <div class="face back" id="back"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button onclick="prev()">←</button>
+      <button onclick="flip()">Flip</button>
+      <button onclick="next()">→</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const user = JSON.parse(localStorage.getItem("flashcards.user") || '{"appearance":{},"progress":{}}');
+
+if(user.appearance.transparent) document.body.classList.add("transparent");
+
+function saveUser(){
+  localStorage.setItem("flashcards.user",JSON.stringify(user));
+}
+
+function toggleTransparency(){
+  document.body.classList.toggle("transparent");
+  user.appearance.transparent=document.body.classList.contains("transparent");
+  saveUser();
+}
+
+let LIBRARY=null;
+let CURRENT_DECK=null;
+let CARDS=[];
+let INDEX=0;
+
+fetch("data/library.json")
+  .then(r=>r.json())
+  .then(data=>{
+    LIBRARY=data;
+    buildSidebar();
+  });
+
+function buildSidebar(){
+  const sb=document.getElementById("sidebar");
+  LIBRARY.folders.forEach(f=>{
+    const div=document.createElement("div");
+    div.className="folder";
+    div.innerHTML=`<i data-lucide="${f.icon}"></i>${f.name}`;
+    div.onclick=()=>showFolder(f);
+    sb.appendChild(div);
+  });
+  lucide.createIcons();
+}
+
+function showFolder(folder){
+  const grid=document.getElementById("deckGrid");
+  grid.innerHTML="";
+  folder.decks.forEach(d=>{
+    const el=document.createElement("div");
+    el.className="deckCard";
+    el.textContent=d.title;
+    el.onclick=()=>loadDeck(d);
+    grid.appendChild(el);
+  });
+}
+
+function loadDeck(deck){
+  CURRENT_DECK=deck;
+  fetch(deck.path)
+    .then(r=>r.text())
+    .then(text=>{
+      CARDS=parseDeck(text);
+      INDEX=user.progress[deck.id]?.index||0;
+      document.getElementById("deckGrid").style.display="none";
+      document.getElementById("cardView").style.display="flex";
+      showCard();
+    });
+}
+
+function parseDeck(text){
+  const sections=text.split("\n---\n").filter(Boolean);
+  const cards=[];
+  sections.forEach(s=>{
+    const q=s.match(/Q:\s*([\s\S]*?)\nA:\s*([\s\S]*)$/);
+    if(q) cards.push({front:q[1],back:q[2]});
+  });
+  return cards;
+}
+
+function render(md){
+  return marked.parse(md);
+}
+
+function showCard(){
+  const c=CARDS[INDEX];
+  document.getElementById("front").innerHTML=render(c.front);
+  document.getElementById("back").innerHTML=render(c.back);
+  document.getElementById("card").classList.remove("flipped");
+  document.getElementById("progressFill").style.width=((INDEX+1)/CARDS.length*100)+"%";
+  user.progress[CURRENT_DECK.id]={index:INDEX};
+  saveUser();
+}
+
+function flip(){
+  document.getElementById("card").classList.toggle("flipped");
+}
+
+function next(){ if(INDEX<CARDS.length-1){INDEX++;showCard();}}
+function prev(){ if(INDEX>0){INDEX--;showCard();}}
+</script>
+</body>
+</html>

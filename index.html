@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flashcards</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0a0a11;
+      --surface:    #111119;
+      --surface2:   #18181f;
+      --border:     #252535;
+      --accent:     #7c3aed;
+      --accent2:    #a78bfa;
+      --accent-dim: rgba(124,58,237,.13);
+      --glow:       rgba(124,58,237,.3);
+      --text:       #d8dce8;
+      --dim:        #6b7394;
+      --muted:      #4a4d66;
+      --tag-bg:     rgba(124,58,237,.1);
+      --tag-fg:     #b39dfa;
+      --card-q:     #131320;
+      --card-a:     #0e1024;
+      --card-ae:    rgba(124,58,237,.22);
+      --shadow:     0 6px 28px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.2);
+      --r:          12px;
+      --rl:         18px;
+      --card-alpha: 1;
+    }
+
+    /* ── Transparent mode ───────────────────────────────────────────── */
+    html.transparent,
+    html.transparent body        { background: transparent !important; }
+    html.transparent .topbar     { display: none !important; }
+    html.transparent .lib-wrap   { padding-top: .5rem; }
+    html.transparent .deck-item  { background: rgba(17,17,25,.55) !important; backdrop-filter: blur(12px); border-color: rgba(255,255,255,.08) !important; }
+    /* Blur at the scene level — faces have NO backdrop-filter, fixing backface bleed-through */
+    html.transparent .scene      { backdrop-filter: blur(16px); }
+    html.transparent .face-q     { background: rgba(19,19,32, var(--card-alpha)) !important; }
+    html.transparent .face-a     { background: rgba(14,16,36, var(--card-alpha)) !important; }
+    html.transparent .settings-panel { background: rgba(12,12,20,.9) !important; backdrop-filter: blur(24px); }
+    html.transparent .modal      { background: rgba(12,12,20,.92) !important; backdrop-filter: blur(24px); }
+    html.transparent .info-panel { background: rgba(12,12,20,.92) !important; backdrop-filter: blur(24px); }
+    /* floating topbar for deck view in transparent mode */
+    html.transparent .deck-topbar-float {
+      background: rgba(10,10,17,.6) !important;
+      backdrop-filter: blur(20px);
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.07) !important;
+    }
+    /* In transparent mode, show a floating toolbar instead */
+    html.transparent .tb-float-wrap {
+      position: absolute; top: .7rem; left: 50%; transform: translateX(-50%);
+      z-index: 10; display: flex !important;
+    }
+
+    /* ── Base ──────────────────────────────────────────────────────── */
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+    .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── Topbar ────────────────────────────────────────────────────── */
+    .topbar {
+      display: flex; align-items: center;
+      padding: .45rem .9rem; gap: .35rem; flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface); min-height: 42px;
+    }
+    .topbar .spacer { flex: 1; }
+
+    /* ── Buttons ───────────────────────────────────────────────────── */
+    button { font-family: inherit; cursor: pointer; outline: none; }
+    button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+    .icon-btn {
+      width: 28px; height: 28px; border-radius: 7px;
+      background: transparent; border: 1px solid transparent;
+      color: var(--dim); display: flex; align-items: center; justify-content: center;
+      transition: all .12s; flex-shrink: 0;
+    }
+    .icon-btn:hover  { background: var(--accent-dim); border-color: var(--border); color: var(--accent2); }
+    .icon-btn.active { background: var(--accent-dim); color: var(--accent2); border-color: rgba(124,58,237,.3); }
+    .icon-btn svg    { pointer-events: none; width: 15px; height: 15px; }
+
+    .btn-sm {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--dim); border-radius: 7px; padding: .25rem .6rem;
+      font-size: .72rem; transition: all .12s;
+      display: flex; align-items: center; gap: .28rem;
+    }
+    .btn-sm:hover { border-color: var(--accent); color: var(--accent2); }
+    .btn-sm.on    { border-color: var(--accent); color: var(--accent2); background: var(--accent-dim); }
+    .btn-sm svg   { pointer-events: none; width: 12px; height: 12px; }
+
+    .deck-title {
+      font-size: .83rem; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22rem;
+    }
+    .counter { font-size: .74rem; color: var(--dim); font-variant-numeric: tabular-nums; min-width: 2.8rem; text-align: right; flex-shrink: 0; }
+
+    /* ── Library ───────────────────────────────────────────────────── */
+    .lib-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .lib-wrap.hide { display: none; }
+
+    .library {
+      flex: 1; overflow-y: auto;
+      padding: 1.1rem 1.2rem .6rem;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    }
+    .library-inner { max-width: 720px; margin: 0 auto; }
+
+    /* Folder section */
+    .folder-section { margin-bottom: 1.4rem; }
+    .folder-header  { display: flex; align-items: center; gap: .38rem; margin-bottom: .5rem; }
+    .folder-icon    { color: var(--accent2); opacity: .75; }
+    .folder-icon svg { width: 16px; height: 16px; }
+    .folder-name    { font-size: .76rem; font-weight: 600; color: var(--text); letter-spacing: .02em; }
+    .folder-actions { display: flex; gap: .12rem; opacity: 0; transition: opacity .14s; }
+    .folder-section:hover .folder-actions { opacity: 1; }
+
+    .folder-decks {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: .4rem;
+    }
+    /* Drop target: only the empty-folder box lights up — no outer outline */
+
+    /* Deck card */
+    .deck-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); padding: .65rem .8rem;
+      cursor: grab; transition: all .14s;
+      display: flex; flex-direction: column; gap: .22rem;
+      position: relative;
+    }
+    .deck-item:active { cursor: grabbing; }
+    .deck-item.dragging { opacity: .35; }
+    .deck-item:hover { border-color: rgba(124,58,237,.35); background: var(--surface2); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+    .deck-item-name { font-size: .8rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 1rem; }
+    .deck-item-info { font-size: .67rem; color: var(--dim); }
+    /* Star button — active state fills the star with accent color */
+    .btn-star.on svg      { fill: var(--accent2); stroke: var(--accent2); }
+    .btn-star-filter.on svg { fill: var(--accent2); stroke: var(--accent2); }
+
+    .tag { background: var(--tag-bg); color: var(--tag-fg); font-size: .58rem; padding: .08rem .35rem; border-radius: 999px; font-weight: 500; }
+
+    /* Unfiled */
+    .unfiled-label { font-size: .72rem; color: var(--text); margin-bottom: .42rem; display: flex; align-items: center; gap: .28rem; opacity: .7; }
+    .unfiled-label svg { width: 13px; height: 13px; }
+
+    /* Empty folder */
+    .deck-empty {
+      border: 1px dashed rgba(255,255,255,.18); border-radius: var(--r);
+      padding: .65rem .8rem; font-size: .74rem; color: rgba(255,255,255,.45);
+      min-height: 52px; display: flex; align-items: center;
+    }
+    .deck-empty.drag-over { border-color: var(--accent); color: var(--accent2); background: var(--accent-dim); }
+
+    /* ── Settings overlay ──────────────────────────────────────────── */
+    .settings-overlay  { position: fixed; inset: 0; z-index: 100; display: none; }
+    .settings-overlay.open { display: block; }
+    .settings-backdrop { position: absolute; inset: 0; }
+    .settings-panel {
+      position: absolute; top: 46px; right: 8px; width: 260px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); padding: .75rem;
+      box-shadow: 0 16px 40px rgba(0,0,0,.45); z-index: 101;
+    }
+    html.transparent .settings-panel { top: 52px; }
+    .settings-label { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: .3rem; margin-top: .5rem; }
+    .settings-label:first-child { margin-top: 0; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: .22rem 0; }
+    .toggle-row span { font-size: .77rem; color: var(--dim); }
+    .toggle {
+      width: 32px; height: 17px; background: var(--muted);
+      border-radius: 999px; position: relative; cursor: pointer;
+      transition: background .18s; border: none; flex-shrink: 0;
+    }
+    .toggle::after { content:''; width:13px; height:13px; background:white; border-radius:50%; position:absolute; top:2px; left:2px; transition:transform .18s; }
+    .toggle.on           { background: var(--accent); }
+    .toggle.on::after    { transform: translateX(15px); }
+
+    /* Color wheel */
+    .color-row { display: flex; align-items: center; gap: .5rem; padding: .22rem 0; }
+    .color-row span { font-size: .77rem; color: var(--dim); flex: 1; }
+    .color-swatch {
+      width: 26px; height: 26px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.2); cursor: pointer;
+      background: var(--accent); transition: transform .12s;
+      flex-shrink: 0;
+    }
+    .color-swatch:hover { transform: scale(1.1); }
+    input[type=color] { opacity: 0; width: 0; height: 0; position: absolute; }
+
+    /* Slider row (card opacity) */
+    .transp-only { display: none; }
+    html.transparent .transp-only { display: flex; }
+    .slider-row { display: flex; align-items: center; justify-content: space-between; padding: .22rem 0; gap: .4rem; }
+    .slider-row > span { font-size: .77rem; color: var(--dim); }
+    .slider-row input[type=range] { width: 76px; cursor: pointer; accent-color: var(--accent); }
+    .slider-val { font-size: .67rem; color: var(--muted); min-width: 2.2rem; text-align: right; }
+
+    /* Key chips with remove button */
+    .key-chip { display: inline-flex; align-items: center; }
+    .key-rm-btn {
+      width: 11px; height: 11px; border-radius: 50%;
+      background: transparent; border: none;
+      color: var(--muted); font-size: .55rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; padding: 0; margin-left: .1rem; flex-shrink: 0;
+    }
+    .key-rm-btn:hover { color: #f87171; }
+
+    /* ── Info panel ────────────────────────────────────────────────── */
+    .info-overlay  { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; }
+    .info-overlay.open { display: flex; }
+    .info-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+    .info-panel {
+      position: relative; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--rl); padding: 1.2rem 1.5rem; width: 340px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.5); z-index: 101;
+    }
+    .info-panel h3 { font-size: .85rem; margin-bottom: .8rem; color: var(--text); }
+    .shortcut-list { display: flex; flex-direction: column; gap: .28rem; }
+    .shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: .3rem; }
+    .shortcut-row > span { font-size: .76rem; color: var(--dim); flex: 1; }
+    .shortcut-keys { display: flex; gap: .25rem; flex-wrap: wrap; }
+    kbd {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 4px; padding: .1rem .32rem; font-size: .65rem;
+      color: var(--text); font-family: inherit;
+    }
+    kbd.listening { color: var(--accent2); border-color: var(--accent); background: var(--accent-dim); }
+    .shortcut-hint { font-size: .62rem; color: var(--muted); margin-top: .55rem; }
+    .shortcut-edit-btn {
+      width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0;
+      background: transparent; border: 1px solid transparent;
+      color: var(--muted); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .12s; padding: 0;
+    }
+    .shortcut-edit-btn:hover { background: var(--accent-dim); border-color: var(--border); color: var(--accent2); }
+    .shortcut-edit-btn svg { pointer-events: none; width: 11px; height: 11px; }
+
+    /* ── Folder modal ──────────────────────────────────────────────── */
+    .modal-overlay  { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+    .modal {
+      position: relative; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--rl); padding: 1.1rem; width: 360px; max-height: 80vh;
+      overflow-y: auto; box-shadow: 0 24px 60px rgba(0,0,0,.5); z-index: 201;
+    }
+    .modal h3   { font-size: .86rem; margin-bottom: .7rem; color: var(--text); }
+    .modal-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: .4rem .58rem; color: var(--text); font-size: .79rem;
+      font-family: inherit; outline: none; margin-bottom: .5rem;
+    }
+    .modal-input:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: .32rem; margin-top: .65rem; }
+    .modal-btn {
+      padding: .32rem .8rem; border-radius: 7px; font-size: .74rem;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--dim); cursor: pointer; transition: all .12s;
+    }
+    .modal-btn:hover         { border-color: var(--accent); color: var(--text); }
+    .modal-btn.primary       { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .modal-btn.primary:hover { background: var(--accent2); }
+    .modal-btn.danger        { color: #f87171; }
+    .modal-btn.danger:hover  { background: rgba(248,113,113,.1); border-color: #f87171; }
+
+    /* Icon picker */
+    .icon-picker {
+      display: grid; grid-template-columns: repeat(8,1fr); gap: .22rem;
+      margin-bottom: .5rem; max-height: 170px; overflow-y: auto;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    }
+    .icon-pick {
+      aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; cursor: pointer; color: var(--dim); transition: all .11s;
+    }
+    .icon-pick:hover    { border-color: var(--accent); color: var(--accent2); }
+    .icon-pick.selected { border-color: var(--accent); color: var(--accent2); background: var(--accent-dim); }
+    .icon-pick svg      { width: 14px; height: 14px; pointer-events: none; }
+
+    /* ── Deck view ─────────────────────────────────────────────────── */
+    .deck-view { display: none; flex-direction: column; flex: 1; min-height: 0; position: relative; }
+    .deck-view.show { display: flex; }
+
+    /* Floating bar for transparent mode */
+    .tb-float-wrap { display: none; align-items: center; gap: .4rem; padding: .3rem .7rem; }
+
+    .card-area {
+      flex: 1; min-height: 0; overflow: hidden;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: .5rem 1rem; gap: .45rem;
+    }
+
+    /* Progress — narrow, centered */
+    .progress-wrap { width: 60%; flex-shrink: 0; min-width: 120px; }
+    .progress { height: 2px; background: var(--surface2); border-radius: 999px; overflow: hidden; }
+    .progress-fill {
+      height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width .3s cubic-bezier(.4,0,.2,1); width: 0; border-radius: 999px;
+    }
+
+    /* Card scene — 60% width, constrained by viewport height so nav stays visible */
+    .scene {
+      width: min(60%, calc((100vh - 155px) * 1.5));
+      aspect-ratio: 3/2;
+      perspective: 1200px; cursor: pointer; flex-shrink: 0;
+    }
+    .card-wrap {
+      width: 100%; height: 100%; position: relative;
+      transform-style: preserve-3d; -moz-transform-style: preserve-3d;
+      transition: transform .55s cubic-bezier(.42,0,.08,1); user-select: none;
+    }
+    .card-wrap.flipped { transform: rotateY(180deg); }
+    .card-wrap.no-anim { transition: none !important; }
+
+    /* Anti-bleed: hide content at the visual midpoint of cubic-bezier(.42,0,.08,1) over .55s
+       progress=0.5 at parametric t=0.5 → x=0.3125 → 0.3125×0.55s ≈ 0.172s */
+    .face-q > *, .face-a > * { transition: opacity 0s .172s; }
+    .card-wrap.flipped       .face-q > * { opacity: 0; }
+    .card-wrap:not(.flipped) .face-a > * { opacity: 0; }
+    .card-wrap.no-anim .face-q > *,
+    .card-wrap.no-anim .face-a > *       { transition: none !important; }
+
+    .face {
+      position: absolute; inset: 0;
+      backface-visibility: hidden; -moz-backface-visibility: hidden;
+      border-radius: var(--rl); border: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .face-q { background: var(--card-q); }
+    .face-a { background: var(--card-a); border-color: var(--card-ae); transform: rotateY(180deg); }
+
+    .face-label {
+      flex-shrink: 0; padding: .35rem 1rem; font-size: .57rem;
+      font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: .32rem;
+    }
+    .face-dot { width: 5px; height: 5px; border-radius: 50%; }
+    .face-q .face-label { color: var(--muted); background: rgba(255,255,255,.012); }
+    .face-q .face-dot   { background: var(--muted); }
+    .face-a .face-label { color: var(--accent2); background: rgba(124,58,237,.05); }
+    .face-a .face-dot   { background: var(--accent2); }
+
+    .face-body {
+      flex: 1; overflow-y: auto;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.2rem 1.6rem;
+    }
+    .face-body-inner { width: 100%; max-width: 520px; text-align: center; }
+
+    /* Nav overlay — arrows on sides of card */
+    .card-nav {
+      display: flex; align-items: center; justify-content: center;
+      gap: .55rem; flex-shrink: 0; flex-basis: 38px;
+      position: relative; z-index: 2;
+    }
+    .btn-circle {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); display: flex; align-items: center; justify-content: center;
+      transition: all .12s; flex-shrink: 0;
+    }
+    .btn-circle:hover:not(:disabled) { border-color: var(--accent); color: var(--accent2); }
+    .btn-circle:disabled { opacity: .18; cursor: default; }
+    .btn-circle svg      { pointer-events: none; width: 16px; height: 16px; }
+    .btn-flip {
+      background: var(--accent); border: none; color: #fff;
+      padding: .38rem 1.7rem; border-radius: 999px;
+      font-size: .79rem; font-weight: 500; transition: all .14s;
+    }
+    .btn-flip:hover { background: var(--accent2); box-shadow: 0 0 18px var(--glow); }
+
+    /* ── View transitions ──────────────────────────────────────────── */
+    @keyframes viewIn { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
+    .view-in { animation: viewIn .22s cubic-bezier(.2,0,.1,1) both; }
+
+    /* ── Card slide transition ─────────────────────────────────────── */
+    @keyframes slideOutL { to   { opacity:0; transform:translateX(-28px); } }
+    @keyframes slideOutR { to   { opacity:0; transform:translateX(28px);  } }
+    @keyframes slideInR  { from { opacity:0; transform:translateX(28px);  } }
+    @keyframes slideInL  { from { opacity:0; transform:translateX(-28px); } }
+    .scene.out-l { animation: slideOutL .13s ease forwards; pointer-events:none; }
+    .scene.out-r { animation: slideOutR .13s ease forwards; pointer-events:none; }
+    .scene.in-r  { animation: slideInR  .16s ease forwards; }
+    .scene.in-l  { animation: slideInL  .16s ease forwards; }
+
+    /* ── Floating lib toolbar (transparent mode only) ──────────────── */
+    .tb-float-lib {
+      display: none; position: fixed; top: .65rem; right: .65rem;
+      background: rgba(10,10,17,.6); backdrop-filter: blur(20px);
+      border-radius: 999px; border: 1px solid rgba(255,255,255,.07);
+      padding: .22rem .4rem; gap: .15rem; align-items: center; z-index: 50;
+    }
+    html.transparent .tb-float-lib.show { display: flex; }
+
+    /* ── Markdown content ──────────────────────────────────────────── */
+    .face-body-inner p               { line-height: 1.75; margin-bottom: .55rem; font-size: .97rem; }
+    .face-body-inner p:last-child    { margin-bottom: 0; }
+    .face-body-inner h1              { font-size: 1.2rem; margin-bottom: .55rem; }
+    .face-body-inner h2              { font-size: 1.05rem; margin-bottom: .55rem; }
+    .face-body-inner h3              { font-size: .97rem; margin-bottom: .55rem; }
+    .face-body-inner strong          { color: #f0f0ff; }
+    .face-body-inner em              { color: var(--accent2); }
+    .face-body-inner a               { color: var(--accent2); }
+    .face-body-inner code {
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 4px; padding: .09em .33em; font-size: .84em;
+      font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
+    }
+    .face-body-inner pre {
+      background: rgba(0,0,0,.35); border: 1px solid var(--border);
+      border-radius: 9px; padding: .8rem 1rem; overflow-x: auto;
+      text-align: left; margin: .55rem 0;
+    }
+    .face-body-inner pre code  { background: none; border: none; padding: 0; font-size: .78rem; line-height: 1.65; }
+    .face-body-inner ul,
+    .face-body-inner ol        { text-align: left; padding-left: 1.3rem; margin-bottom: .55rem; }
+    .face-body-inner li        { margin-bottom: .13rem; line-height: 1.6; }
+    .face-body-inner blockquote {
+      border-left: 3px solid var(--accent); padding-left: .8rem;
+      margin: .55rem 0; color: var(--dim); text-align: left;
+    }
+    .face-body-inner table     { border-collapse: collapse; width: 100%; margin: .55rem 0; text-align: left; font-size: .84rem; }
+    .face-body-inner th,
+    .face-body-inner td        { border: 1px solid var(--border); padding: .3rem .5rem; }
+    .face-body-inner th        { background: rgba(124,58,237,.08); font-weight: 600; }
+    .face-body-inner img       { max-width: 100%; border-radius: 8px; margin: .4rem 0; }
+    .face-body-inner audio,
+    .face-body-inner video     { width: 100%; max-width: 380px; border-radius: 8px; margin: .38rem auto; display: block; }
+    .face-body-inner .katex-display { margin: .55rem 0; overflow-x: auto; }
+    .face-body-inner .katex    { font-size: 1.06em; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOPBAR (hidden in transparent mode) -->
+  <div class="topbar" id="topbar">
+    <span id="btnLibMode" style="display:contents">
+      <button class="icon-btn" onclick="openNewFolder()" title="New folder"><i data-lucide="folder-plus"></i></button>
+    </span>
+    <span id="btnDeckMode" style="display:none">
+      <button class="icon-btn" onclick="backToLibrary()" title="Back"><i data-lucide="arrow-left"></i></button>
+      <span class="deck-title" id="deckTitle"></span>
+    </span>
+    <span class="spacer"></span>
+    <span id="deckCtrl" style="display:none;align-items:center;gap:.32rem">
+      <span class="counter" id="counter">0 / 0</span>
+      <button class="btn-sm" id="btnShuffle" onclick="toggleShuffle()"><i data-lucide="shuffle"></i></button>
+      <button class="btn-sm btn-star-filter" id="btnStarFilter" onclick="toggleStarFilter()" title="Starred only"><i data-lucide="star"></i></button>
+      <button class="btn-sm" id="btnUnstarAll" onclick="unstarAll()" title="Unstar all" style="display:none"><i data-lucide="star-off"></i></button>
+    </span>
+    <button class="icon-btn" onclick="openInfo()" title="Shortcuts"><i data-lucide="keyboard"></i></button>
+    <button class="icon-btn" id="btnSettings" onclick="toggleSettings()"><i data-lucide="settings"></i></button>
+  </div>
+
+  <!-- Floating library toolbar (transparent mode only) -->
+  <div class="tb-float-lib" id="tbFloatLib">
+    <button class="icon-btn" onclick="openNewFolder()" title="New folder"><i data-lucide="folder-plus"></i></button>
+    <button class="icon-btn" onclick="openInfo()" title="Shortcuts"><i data-lucide="keyboard"></i></button>
+    <button class="icon-btn" onclick="toggleSettings()" title="Settings"><i data-lucide="settings"></i></button>
+  </div>
+
+  <!-- LIBRARY -->
+  <div class="lib-wrap" id="libWrap">
+    <div class="library"><div class="library-inner" id="libInner"></div></div>
+  </div>
+
+  <!-- DECK VIEW -->
+  <div class="deck-view" id="deckView">
+    <!-- Floating topbar for transparent mode -->
+    <div class="tb-float-wrap deck-topbar-float" id="tbFloat">
+      <button class="icon-btn" onclick="backToLibrary()" title="Back"><i data-lucide="arrow-left"></i></button>
+      <span class="deck-title" id="deckTitleFloat" style="font-size:.8rem;font-weight:600;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <span style="flex:1"></span>
+      <span class="counter" id="counterFloat" style="font-size:.72rem;color:var(--dim);font-variant-numeric:tabular-nums"></span>
+      <button class="btn-sm" id="btnShuffleFloat" onclick="toggleShuffle()"><i data-lucide="shuffle"></i></button>
+      <button class="btn-sm btn-star-filter" id="btnStarFilterFloat" onclick="toggleStarFilter()" title="Starred only"><i data-lucide="star"></i></button>
+      <button class="btn-sm" id="btnUnstarAllFloat" onclick="unstarAll()" title="Unstar all" style="display:none"><i data-lucide="star-off"></i></button>
+      <button class="icon-btn" onclick="openInfo()"><i data-lucide="keyboard"></i></button>
+      <button class="icon-btn" onclick="toggleSettings()"><i data-lucide="settings"></i></button>
+    </div>
+
+    <div class="card-area">
+      <div class="progress-wrap">
+        <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+      <div class="scene" id="scene" onclick="doFlip()">
+        <div class="card-wrap" id="cardWrap">
+          <div class="face face-q">
+            <div class="face-label"><span class="face-dot"></span>Q</div>
+            <div class="face-body"><div class="face-body-inner" id="frontHTML"></div></div>
+          </div>
+          <div class="face face-a">
+            <div class="face-label"><span class="face-dot"></span>A</div>
+            <div class="face-body"><div class="face-body-inner" id="backHTML"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card-nav">
+        <button class="btn-circle" id="btnPrev" onclick="go(-1)"><i data-lucide="chevron-left"></i></button>
+        <button class="btn-flip" onclick="doFlip()">Flip</button>
+        <button class="btn-circle" id="btnNext" onclick="go(1)"><i data-lucide="chevron-right"></i></button>
+        <button class="btn-circle btn-star" id="btnStar" onclick="toggleStar()" title="Star card"><i data-lucide="star"></i></button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- SETTINGS -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-backdrop" onclick="toggleSettings()"></div>
+  <div class="settings-panel">
+    <div class="settings-label">Appearance</div>
+    <div class="toggle-row">
+      <span>Transparent background</span>
+      <button class="toggle" id="toggleTransparent" onclick="toggleTransparentMode()"></button>
+    </div>
+    <div class="slider-row transp-only">
+      <span>Card opacity</span>
+      <div style="display:flex;align-items:center;gap:.3rem">
+        <input type="range" id="cardAlphaSlider" min="5" max="100" value="78" oninput="setCardAlpha(this.value/100)">
+        <span class="slider-val" id="cardAlphaVal">78%</span>
+      </div>
+    </div>
+    <div class="color-row">
+      <span>Accent color</span>
+      <div class="color-swatch" id="colorSwatch" onclick="document.getElementById('colorPicker').click()" title="Pick accent color"></div>
+      <input type="color" id="colorPicker" value="#7c3aed" oninput="setAccent(this.value)">
+    </div>
+  </div>
+</div>
+
+<!-- INFO / SHORTCUTS -->
+<div class="info-overlay" id="infoOverlay">
+  <div class="info-backdrop" onclick="closeInfo()"></div>
+  <div class="info-panel">
+    <h3>Keyboard shortcuts</h3>
+    <div class="shortcut-list" id="shortcutList"></div>
+    <p class="shortcut-hint">Click <i data-lucide="pencil" style="width:10px;height:10px;display:inline-block;vertical-align:middle"></i> to remap · Esc to cancel</p>
+  </div>
+</div>
+
+<!-- FOLDER MODAL -->
+<div class="modal-overlay" id="folderModal">
+  <div class="modal-backdrop" onclick="closeFolderModal()"></div>
+  <div class="modal">
+    <h3 id="folderModalTitle">New Folder</h3>
+    <input class="modal-input" id="folderNameInput" placeholder="Folder name" maxlength="50">
+    <div class="settings-label" style="margin-top:.35rem;margin-bottom:.35rem">Icon</div>
+    <div class="icon-picker" id="iconPicker"></div>
+    <div class="modal-actions">
+      <button class="modal-btn danger" id="folderDeleteBtn" onclick="deleteFolder()" style="display:none;margin-right:auto">Delete</button>
+      <button class="modal-btn" onclick="closeFolderModal()">Cancel</button>
+      <button class="modal-btn primary" onclick="saveFolder()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const STORAGE_KEY = 'fc_data_v2';
+
+const FOLDER_ICONS = [
+  'folder','book-open','graduation-cap','sigma','flask-conical',
+  'atom','dna','microscope','calculator','binary',
+  'music','guitar','headphones','mic','piano',
+  'palette','brush','pen-tool','camera','film',
+  'globe','languages','landmark','map','compass',
+  'heart-pulse','brain','stethoscope','pill','activity',
+  'code','terminal','database','cpu','wifi',
+  'briefcase','scale','gavel','building-2','receipt',
+  'trophy','target','flame','star','zap',
+  'lightbulb','puzzle','shapes','layers','box',
+];
+
+const S = { cards:[], order:[], idx:0, flipped:false, meta:{}, view:'library', deckId:null, shuffled:false, starredOnly:false };
+const DECKS = {}; // runtime deck data — fetched fresh each load, never persisted
+
+// ─── Persistence ──────────────────────────────────────────────────────────────
+function loadData() {
+  try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; } catch(_){}
+  return null;
+}
+function saveData() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA)); } catch(_){} }
+
+function defaultData() {
+  return {
+    folders: [
+      { id:'math',    name:'Mathematics', icon:'sigma',         decks:[] },
+      { id:'science', name:'Science',     icon:'flask-conical', decks:[] },
+      { id:'arts',    name:'Arts',        icon:'music',         decks:[] },
+    ],
+    settings: { transparent:false, accent:'#7c3aed', cardAlpha:0.78 },
+    stars: {},
+  };
+}
+
+let DATA = loadData() || defaultData();
+if (!DATA.settings) DATA.settings = {};
+if (!DATA.settings.accent) DATA.settings.accent = '#7c3aed';
+if (!DATA.stars) DATA.stars = {};
+
+// ─── Accent color ─────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+function lightenHex(hex, amount=0.25) {
+  let r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  r=Math.min(255,Math.round(r+(255-r)*amount));
+  g=Math.min(255,Math.round(g+(255-g)*amount));
+  b=Math.min(255,Math.round(b+(255-b)*amount));
+  return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function setAccent(hex) {
+  const rgb = hexToRgb(hex);
+  const light = lightenHex(hex, 0.28);
+  const root = document.documentElement;
+  root.style.setProperty('--accent',      hex);
+  root.style.setProperty('--accent2',     light);
+  root.style.setProperty('--accent-dim',  `rgba(${rgb},.13)`);
+  root.style.setProperty('--glow',        `rgba(${rgb},.3)`);
+  root.style.setProperty('--tag-bg',      `rgba(${rgb},.1)`);
+  root.style.setProperty('--tag-fg',      light);
+  root.style.setProperty('--card-ae',     `rgba(${rgb},.22)`);
+  document.getElementById('colorSwatch').style.background = hex;
+  document.getElementById('colorPicker').value = hex;
+  DATA.settings.accent = hex;
+  saveData();
+}
+
+// ─── Parsing ──────────────────────────────────────────────────────────────────
+function parseDeck(text) {
+  let meta = {}, body = text.replace(/\r\n/g,'\n').trim();
+  const fm = body.match(/^---[ \t]*\n([\s\S]*?)\n---[ \t]*\n?([\s\S]*)$/);
+  if (fm) {
+    try { meta = jsyaml.load(fm[1]) || {}; } catch(_){}
+    body = fm[2].trim();
+  }
+  const cards = [];
+  for (const sec of body.split(/\n---\n/).map(s=>s.trim()).filter(Boolean)) {
+    const block = sec.replace(/^###\s+Card\s*\n/,'').trim();
+    if (/^Q:/m.test(block)) {
+      const m = block.match(/Q:\s*([\s\S]*?)\nA:\s*([\s\S]*)$/);
+      if (m) { cards.push({front:m[1].trim(), back:m[2].trim()}); continue; }
+    }
+    if (/^##\s+front/im.test(block) && /^##\s+back/im.test(block)) {
+      const f = block.match(/^##\s+front\s*\n([\s\S]*?)(?=^##\s+back)/im);
+      const b = block.match(/^##\s+back\s*\n([\s\S]*)$/im);
+      if (f && b) { cards.push({front:f[1].trim(), back:b[1].trim()}); continue; }
+    }
+  }
+  return {meta, cards};
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+function rkx(src, display) {
+  try { return katex.renderToString(src.trim(), {displayMode:display, throwOnError:false, output:'html'}); }
+  catch(_) { return display ? `$$${src}$$` : `$${src}$`; }
+}
+function renderContent(md) {
+  if (!md) return '';
+  let s = md;
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_,c) => `\n\n${rkx(c,true)}\n\n`);
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g,  (_,c) => `\n\n${rkx(c,true)}\n\n`);
+  const stash = [];
+  const protect = src => { stash.push(rkx(src,false)); return `KMATH${stash.length-1}Z`; };
+  s = s.replace(/\$([^\n$`]+?)\$/g,      (_,c) => protect(c));
+  s = s.replace(/\\\(([^\n\\]+?)\\\)/g,  (_,c) => protect(c));
+  let html = marked.parse(s, {gfm:true, breaks:false});
+  return html.replace(/KMATH(\d+)Z/g, (_,i) => stash[+i]);
+}
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ─── Built-in decks ───────────────────────────────────────────────────────────
+async function loadBuiltinDecks() {
+  try {
+    const manifest = await fetch('decks/manifest.json').then(r => r.json());
+    for (const entry of manifest.decks) {
+      try {
+        const content = await fetch(`decks/${entry.file}`).then(r => r.text());
+        const parsed = parseDeck(content);
+        const id = entry.id;
+        DECKS[id] = { name: parsed.meta.deck || id, tags: parsed.meta.tags || [], cardCount: parsed.cards.length, content };
+      } catch(e) { console.warn(`Could not load ${entry.file}:`, e.message); }
+    }
+  } catch(e) { console.error('Could not load decks/manifest.json:', e.message); }
+
+  // Strip stale folder refs (only when decks actually loaded, to avoid wiping on error)
+  if (Object.keys(DECKS).length > 0) {
+    let changed = false;
+    for (const folder of DATA.folders) {
+      const cleaned = folder.decks.filter(id => id in DECKS);
+      if (cleaned.length !== folder.decks.length) { folder.decks = cleaned; changed = true; }
+    }
+    if (changed) saveData();
+  }
+
+  renderLibrary();
+}
+
+// ─── Library ──────────────────────────────────────────────────────────────────
+function renderLibrary() {
+  const container = document.getElementById('libInner');
+  container.innerHTML = '';
+  const foldered = new Set(DATA.folders.flatMap(f=>f.decks));
+
+  for (const folder of DATA.folders) {
+    const sec = document.createElement('div');
+    sec.className = 'folder-section';
+
+    const hdr = document.createElement('div');
+    hdr.className = 'folder-header';
+    hdr.innerHTML = `
+      <span class="folder-icon"><i data-lucide="${folder.icon||'folder'}"></i></span>
+      <span class="folder-name">${esc(folder.name)}</span>
+      <span class="folder-actions">
+        <button class="icon-btn" onclick="editFolder('${folder.id}')" title="Edit" style="width:22px;height:22px">
+          <i data-lucide="pencil" style="width:12px;height:12px"></i>
+        </button>
+      </span>`;
+    sec.appendChild(hdr);
+
+    const grid = document.createElement('div');
+    grid.className = 'folder-decks';
+
+    let rendered = 0;
+    for (const id of folder.decks) {
+      const d = DECKS[id];
+      if (d) { grid.appendChild(makeDeckCard(id, d, folder.id)); rendered++; }
+    }
+    if (rendered === 0) {
+      const emp = document.createElement('div');
+      emp.className = 'deck-empty';
+      emp.textContent = 'Drop a deck here';
+      setupDropTarget(grid, folder.id, emp);
+      grid.appendChild(emp);
+    } else {
+      setupDropTarget(grid, folder.id);
+    }
+    sec.appendChild(grid);
+    container.appendChild(sec);
+  }
+
+  const unfiled = Object.keys(DECKS).filter(id=>!foldered.has(id));
+  if (unfiled.length) {
+    const sec = document.createElement('div');
+    sec.className = 'folder-section';
+    const lbl = document.createElement('div');
+    lbl.className = 'unfiled-label';
+    lbl.innerHTML = '<i data-lucide="inbox"></i> Unfiled';
+    sec.appendChild(lbl);
+    const grid = document.createElement('div');
+    grid.className = 'folder-decks';
+    for (const id of unfiled) grid.appendChild(makeDeckCard(id, DECKS[id], null));
+    sec.appendChild(grid);
+    container.appendChild(sec);
+  }
+
+  lucide.createIcons();
+}
+
+// ─── Drag-to-folder ───────────────────────────────────────────────────────────
+let _draggingDeckId = null;
+let _draggingFromFolder = null;
+
+function makeDeckCard(id, deck, fromFolderId) {
+  const el = document.createElement('div');
+  el.className = 'deck-item';
+  el.draggable = true;
+  el.dataset.deckId = id;
+
+  el.innerHTML = `
+    <div class="deck-item-name">${esc(deck.name)}</div>
+    <div class="deck-item-info">${deck.cardCount} card${deck.cardCount!==1?'s':''}</div>`;
+
+  el.addEventListener('click', () => { if (!_dragging) openDeck(id); });
+
+  el.addEventListener('dragstart', e => {
+    _draggingDeckId = id;
+    _draggingFromFolder = fromFolderId;
+    _dragging = true;
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    setTimeout(()=>{ _dragging=false; }, 50);
+  });
+  return el;
+}
+
+let _dragging = false;
+
+function setupDropTarget(el, folderId, highlightEl) {
+  const hl = highlightEl || el;
+  el.addEventListener('dragover', e => {
+    if (!_draggingDeckId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    hl.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave', e => {
+    if (!el.contains(e.relatedTarget)) hl.classList.remove('drag-over');
+  });
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    hl.classList.remove('drag-over');
+    const id = _draggingDeckId;
+    if (!id) return;
+
+    // Remove from old folder
+    if (_draggingFromFolder) {
+      const oldF = DATA.folders.find(f=>f.id===_draggingFromFolder);
+      if (oldF) oldF.decks = oldF.decks.filter(d=>d!==id);
+    }
+    // Add to new folder (avoid duplicates)
+    const newF = DATA.folders.find(f=>f.id===folderId);
+    if (newF && !newF.decks.includes(id)) newF.decks.push(id);
+
+    _draggingDeckId = null;
+    _draggingFromFolder = null;
+    saveData();
+    renderLibrary();
+  });
+}
+
+// ─── Deck view ────────────────────────────────────────────────────────────────
+function openDeck(id) {
+  const deck = DECKS[id];
+  if (!deck) return;
+  const parsed = parseDeck(deck.content);
+  if (!parsed.cards.length) return;
+
+  S.cards       = parsed.cards;
+  S.meta        = parsed.meta;
+  S.deckId      = id;
+  S.shuffled    = false;
+  S.starredOnly = false;
+  S.idx         = 0; S.flipped = false;
+
+  buildOrder();
+
+  document.getElementById('btnShuffle').classList.remove('on');
+  document.getElementById('btnShuffleFloat').classList.remove('on');
+  document.getElementById('btnStarFilter').classList.remove('on');
+  document.getElementById('btnStarFilterFloat').classList.remove('on');
+  document.getElementById('deckTitle').textContent = deck.name;
+  document.getElementById('deckTitleFloat').textContent = deck.name;
+
+  updateUnstarAllBtns();
+  switchView('deck');
+  showCard();
+}
+
+function backToLibrary() { switchView('library'); }
+
+function animIn(el) {
+  el.classList.remove('view-in');
+  void el.offsetWidth;
+  el.classList.add('view-in');
+}
+
+function switchView(view) {
+  S.view = view;
+  const lib     = document.getElementById('libWrap');
+  const dv      = document.getElementById('deckView');
+  const libM    = document.getElementById('btnLibMode');
+  const deckM   = document.getElementById('btnDeckMode');
+  const ctrl    = document.getElementById('deckCtrl');
+  const floatL  = document.getElementById('tbFloatLib');
+  const floatD  = document.getElementById('tbFloat');
+
+  if (view === 'library') {
+    dv.classList.remove('show');
+    lib.classList.remove('hide');
+    animIn(lib);
+    libM.style.display   = 'contents';
+    deckM.style.display  = 'none';
+    ctrl.style.display   = 'none';
+    floatL.classList.add('show');
+    floatD.style.display = 'none';
+  } else {
+    lib.classList.add('hide');
+    dv.classList.add('show');
+    animIn(dv);
+    libM.style.display   = 'none';
+    deckM.style.display  = 'contents';
+    ctrl.style.display   = 'flex';
+    floatL.classList.remove('show');
+    floatD.style.display = '';
+  }
+  lucide.createIcons();
+}
+
+function showCard() {
+  if (!S.cards.length) return;
+  const wrap = document.getElementById('cardWrap');
+  wrap.classList.add('no-anim');
+  wrap.classList.remove('flipped');
+  S.flipped = false;
+  void wrap.offsetWidth;
+  wrap.classList.remove('no-anim');
+
+  if (!S.order.length) {
+    document.getElementById('frontHTML').innerHTML = '<p style="color:var(--muted);text-align:center;padding:1rem">No starred cards</p>';
+    document.getElementById('backHTML').innerHTML  = '';
+    document.getElementById('counter').textContent = document.getElementById('counterFloat').textContent = '0 / 0';
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('btnPrev').disabled = document.getElementById('btnNext').disabled = true;
+    document.getElementById('btnStar').disabled = true;
+    return;
+  }
+
+  document.getElementById('btnStar').disabled = false;
+  const card = S.cards[S.order[S.idx]];
+  document.getElementById('frontHTML').innerHTML = renderContent(card.front);
+  document.getElementById('backHTML').innerHTML  = renderContent(card.back);
+
+  const n = S.order.length;
+  const txt = `${S.idx+1} / ${n}`;
+  document.getElementById('counter').textContent      = txt;
+  document.getElementById('counterFloat').textContent = txt;
+  document.getElementById('progressFill').style.width = `${((S.idx+1)/n)*100}%`;
+  document.getElementById('btnPrev').disabled = (S.idx===0);
+  document.getElementById('btnNext').disabled = (S.idx===n-1);
+  updateStarBtn();
+}
+
+function doFlip() {
+  if (S.view!=='deck') return;
+  S.flipped = !S.flipped;
+  document.getElementById('cardWrap').classList.toggle('flipped', S.flipped);
+}
+
+let _animating = false;
+function go(delta) {
+  if (_animating) return;
+  const next = S.idx + delta;
+  if (next < 0 || next >= S.order.length) return;
+  _animating = true;
+  const scene = document.getElementById('scene');
+  const outCls = delta > 0 ? 'out-l' : 'out-r';
+  const inCls  = delta > 0 ? 'in-r'  : 'in-l';
+  scene.classList.add(outCls);
+  setTimeout(() => {
+    scene.classList.remove(outCls);
+    S.idx = next;
+    showCard();
+    scene.classList.add(inCls);
+    scene.addEventListener('animationend', () => {
+      scene.classList.remove(inCls);
+      _animating = false;
+    }, { once: true });
+  }, 130);
+}
+
+function toggleShuffle() {
+  S.shuffled = !S.shuffled;
+  document.getElementById('btnShuffle').classList.toggle('on', S.shuffled);
+  document.getElementById('btnShuffleFloat').classList.toggle('on', S.shuffled);
+  buildOrder();
+  S.idx = 0; showCard();
+}
+
+// ─── Stars ────────────────────────────────────────────────────────────────────
+function cardKey(front) {
+  // djb2 hash — stable card identity even if deck is reordered
+  let h = 5381;
+  for (let i = 0; i < front.length; i++) h = (h * 33 ^ front.charCodeAt(i)) & 0xffffffff;
+  return (h >>> 0).toString(36);
+}
+
+function buildOrder() {
+  let order = Array.from({length: S.cards.length}, (_, i) => i);
+  if (S.shuffled) {
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+  }
+  if (S.starredOnly && S.deckId) {
+    const starred = DATA.stars?.[S.deckId] || [];
+    order = order.filter(i => starred.includes(cardKey(S.cards[i].front)));
+  }
+  S.order = order;
+}
+
+function isStarred() {
+  if (!S.deckId || !S.order.length) return false;
+  return (DATA.stars?.[S.deckId] || []).includes(cardKey(S.cards[S.order[S.idx]].front));
+}
+
+function updateStarBtn() {
+  document.getElementById('btnStar').classList.toggle('on', isStarred());
+}
+
+function updateUnstarAllBtns() {
+  const show = S.deckId && (DATA.stars?.[S.deckId] || []).length > 0 ? '' : 'none';
+  document.getElementById('btnUnstarAll').style.display = show;
+  document.getElementById('btnUnstarAllFloat').style.display = show;
+}
+
+function toggleStar() {
+  if (!S.deckId || !S.order.length) return;
+  if (!DATA.stars) DATA.stars = {};
+  if (!DATA.stars[S.deckId]) DATA.stars[S.deckId] = [];
+  const key = cardKey(S.cards[S.order[S.idx]].front);
+  const arr = DATA.stars[S.deckId];
+  const pos = arr.indexOf(key);
+  if (pos >= 0) arr.splice(pos, 1); else arr.push(key);
+  saveData();
+  updateStarBtn();
+  updateUnstarAllBtns();
+  // In starred-only mode, unstarring the current card removes it from the set
+  if (S.starredOnly && pos >= 0) {
+    buildOrder();
+    if (!S.order.length) { showCard(); return; }
+    S.idx = Math.min(S.idx, S.order.length - 1);
+    showCard();
+  }
+}
+
+function toggleStarFilter() {
+  S.starredOnly = !S.starredOnly;
+  document.getElementById('btnStarFilter').classList.toggle('on', S.starredOnly);
+  document.getElementById('btnStarFilterFloat').classList.toggle('on', S.starredOnly);
+  buildOrder();
+  S.idx = 0; showCard();
+}
+
+function unstarAll() {
+  if (!S.deckId) return;
+  if (!DATA.stars) DATA.stars = {};
+  DATA.stars[S.deckId] = [];
+  saveData();
+  updateUnstarAllBtns();
+  if (S.starredOnly) {
+    S.starredOnly = false;
+    document.getElementById('btnStarFilter').classList.remove('on');
+    document.getElementById('btnStarFilterFloat').classList.remove('on');
+    buildOrder();
+    S.idx = 0;
+  }
+  showCard();
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+function toggleSettings() { document.getElementById('settingsOverlay').classList.toggle('open'); }
+
+function setCardAlpha(alpha) {
+  alpha = Math.max(0.05, Math.min(1, alpha));
+  document.documentElement.style.setProperty('--card-alpha', alpha);
+  document.getElementById('cardAlphaVal').textContent = Math.round(alpha * 100) + '%';
+  document.getElementById('cardAlphaSlider').value = Math.round(alpha * 100);
+  DATA.settings.cardAlpha = alpha;
+  saveData();
+}
+
+function toggleTransparentMode() {
+  const btn = document.getElementById('toggleTransparent');
+  btn.classList.toggle('on');
+  const on = btn.classList.contains('on');
+  document.documentElement.classList.toggle('transparent', on);
+  // sync floating lib bar visibility
+  const floatL = document.getElementById('tbFloatLib');
+  if (on && S.view === 'library') floatL.classList.add('show');
+  else floatL.classList.remove('show');
+  DATA.settings.transparent = on;
+  saveData();
+}
+
+// ─── Info panel / shortcuts ───────────────────────────────────────────────────
+const ACTIONS = [
+  { id:'flip',    label:'Flip card' },
+  { id:'prev',    label:'Previous' },
+  { id:'next',    label:'Next' },
+  { id:'shuffle', label:'Shuffle' },
+  { id:'back',    label:'Back to library' },
+];
+const DEFAULT_KEYS = {
+  flip:    [' ','f'],
+  prev:    ['ArrowLeft','a'],
+  next:    ['ArrowRight','d','Enter'],
+  shuffle: ['s'],
+  back:    ['Escape'],
+};
+function getBindings() {
+  const saved = DATA.settings.keys || {};
+  const out = {};
+  for (const a of ACTIONS) out[a.id] = saved[a.id] || DEFAULT_KEYS[a.id];
+  return out;
+}
+function keyMatches(actionId, key) {
+  return getBindings()[actionId].includes(key);
+}
+function fmtKey(k) {
+  const m = {' ':'Space','ArrowLeft':'←','ArrowRight':'→','ArrowUp':'↑','ArrowDown':'↓','Escape':'Esc','Enter':'↵','Backspace':'⌫'};
+  return m[k] || k;
+}
+
+let _editingAction = null;
+
+function renderShortcuts() {
+  const list = document.getElementById('shortcutList');
+  if (!list) return;
+  const bindings = getBindings();
+  list.innerHTML = '';
+  for (const action of ACTIONS) {
+    const ks = bindings[action.id];
+    const isDefault = JSON.stringify(ks) === JSON.stringify(DEFAULT_KEYS[action.id]);
+
+    const row = document.createElement('div');
+    row.className = 'shortcut-row';
+    row.id = 'srow-' + action.id;
+
+    const label = document.createElement('span');
+    label.textContent = action.label;
+
+    const right = document.createElement('div');
+    right.style.cssText = 'display:flex;align-items:center;gap:.22rem;flex-wrap:wrap;justify-content:flex-end';
+
+    const keysEl = document.createElement('div');
+    keysEl.className = 'shortcut-keys';
+    keysEl.id = 'skeys-' + action.id;
+
+    for (const k of ks) {
+      const chip = document.createElement('span');
+      chip.className = 'key-chip';
+      const kEl = document.createElement('kbd');
+      kEl.textContent = fmtKey(k);
+      const rm = document.createElement('button');
+      rm.className = 'key-rm-btn';
+      rm.textContent = '×';
+      rm.title = 'Remove';
+      rm.onclick = () => removeShortcutKey(action.id, k);
+      chip.appendChild(kEl);
+      chip.appendChild(rm);
+      keysEl.appendChild(chip);
+    }
+
+    if (_editingAction === action.id) {
+      const cap = document.createElement('kbd');
+      cap.className = 'listening';
+      cap.textContent = 'Press a key…';
+      keysEl.appendChild(cap);
+    }
+
+    // Add-binding button
+    const addBtn = document.createElement('button');
+    addBtn.className = 'shortcut-edit-btn';
+    addBtn.title = 'Add binding';
+    addBtn.innerHTML = '<i data-lucide="plus"></i>';
+    addBtn.onclick = () => startEditShortcut(action.id);
+
+    right.appendChild(keysEl);
+    right.appendChild(addBtn);
+
+    // Reset button (only shown when custom)
+    if (!isDefault) {
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'shortcut-edit-btn';
+      resetBtn.title = 'Reset to default';
+      resetBtn.innerHTML = '<i data-lucide="rotate-ccw"></i>';
+      resetBtn.onclick = () => resetShortcut(action.id);
+      right.appendChild(resetBtn);
+    }
+
+    row.appendChild(label);
+    row.appendChild(right);
+    list.appendChild(row);
+  }
+  lucide.createIcons();
+}
+
+function startEditShortcut(actionId) {
+  if (_editingAction === actionId) { cancelEditShortcut(); return; }
+  _editingAction = actionId;
+  renderShortcuts();
+}
+
+function cancelEditShortcut() {
+  if (!_editingAction) return;
+  _editingAction = null;
+  renderShortcuts();
+}
+
+function removeShortcutKey(actionId, key) {
+  if (!DATA.settings.keys) DATA.settings.keys = {};
+  const current = getBindings()[actionId];
+  const updated = current.filter(k => k !== key);
+  // Don't allow empty binding — silently ignore
+  if (updated.length === 0) return;
+  DATA.settings.keys[actionId] = updated;
+  saveData(); renderShortcuts();
+}
+
+function resetShortcut(actionId) {
+  if (DATA.settings.keys) delete DATA.settings.keys[actionId];
+  saveData(); renderShortcuts();
+}
+
+function openInfo()  {
+  document.getElementById('infoOverlay').classList.add('open');
+  renderShortcuts();
+}
+function closeInfo() {
+  cancelEditShortcut();
+  document.getElementById('infoOverlay').classList.remove('open');
+}
+
+// ─── Folder management ────────────────────────────────────────────────────────
+let _editFolderId = null, _selIcon = 'folder';
+
+function openNewFolder() {
+  _editFolderId=null; _selIcon='folder';
+  document.getElementById('folderModalTitle').textContent = 'New Folder';
+  document.getElementById('folderNameInput').value = '';
+  document.getElementById('folderDeleteBtn').style.display = 'none';
+  renderIconPicker();
+  document.getElementById('folderModal').classList.add('open');
+  setTimeout(()=>document.getElementById('folderNameInput').focus(),50);
+}
+
+function editFolder(id) {
+  const folder = DATA.folders.find(f=>f.id===id);
+  if (!folder) return;
+  _editFolderId=id; _selIcon=folder.icon||'folder';
+  document.getElementById('folderModalTitle').textContent = 'Edit Folder';
+  document.getElementById('folderNameInput').value = folder.name;
+  document.getElementById('folderDeleteBtn').style.display = 'block';
+  renderIconPicker();
+  document.getElementById('folderModal').classList.add('open');
+  setTimeout(()=>document.getElementById('folderNameInput').focus(),50);
+}
+
+function closeFolderModal() { document.getElementById('folderModal').classList.remove('open'); }
+
+function saveFolder() {
+  const name = document.getElementById('folderNameInput').value.trim();
+  if (!name) return;
+  if (_editFolderId) {
+    const f = DATA.folders.find(f=>f.id===_editFolderId);
+    if (f) { f.name=name; f.icon=_selIcon; }
+  } else {
+    DATA.folders.push({id:'folder_'+Date.now(), name, icon:_selIcon, decks:[]});
+  }
+  saveData(); closeFolderModal(); renderLibrary();
+}
+
+function deleteFolder() {
+  if (!_editFolderId) return;
+  DATA.folders = DATA.folders.filter(f=>f.id!==_editFolderId);
+  saveData(); closeFolderModal(); renderLibrary();
+}
+
+function renderIconPicker() {
+  const c = document.getElementById('iconPicker');
+  c.innerHTML = '';
+  for (const icon of FOLDER_ICONS) {
+    const btn = document.createElement('div');
+    btn.className = 'icon-pick'+(icon===_selIcon?' selected':'');
+    btn.innerHTML = `<i data-lucide="${icon}"></i>`;
+    btn.onclick = () => {
+      _selIcon=icon;
+      c.querySelectorAll('.icon-pick').forEach(el=>el.classList.remove('selected'));
+      btn.classList.add('selected');
+    };
+    c.appendChild(btn);
+  }
+  requestAnimationFrame(()=>lucide.createIcons());
+}
+
+// ─── Keyboard ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,textarea,select')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return; // ignore browser/OS modifier combos
+
+  // Shortcut capture mode
+  if (_editingAction) {
+    if (['Shift','Control','Alt','Meta'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === 'Escape') { cancelEditShortcut(); return; }
+    if (!DATA.settings.keys) DATA.settings.keys = {};
+    const current = getBindings()[_editingAction];
+    if (!current.includes(e.key)) {
+      DATA.settings.keys[_editingAction] = [...current, e.key];
+    }
+    _editingAction = null;
+    saveData(); renderShortcuts();
+    return;
+  }
+
+  if (e.key==='Escape') {
+    if (document.getElementById('folderModal').classList.contains('open')) return closeFolderModal();
+    if (document.getElementById('settingsOverlay').classList.contains('open')) return toggleSettings();
+    if (document.getElementById('infoOverlay').classList.contains('open')) return closeInfo();
+    if (S.view==='deck') backToLibrary();
+    return;
+  }
+  if (S.view!=='deck') return;
+  if (keyMatches('flip',    e.key)) { e.preventDefault(); doFlip(); }
+  else if (keyMatches('prev',    e.key)) { e.preventDefault(); go(-1); }
+  else if (keyMatches('next',    e.key)) { e.preventDefault(); go(1); }
+  else if (keyMatches('shuffle', e.key)) { toggleShuffle(); }
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+(async function init() {
+  const s = DATA.settings;
+  if (s.transparent) {
+    document.documentElement.classList.add('transparent');
+    document.getElementById('toggleTransparent').classList.add('on');
+    document.getElementById('tbFloatLib').classList.add('show');
+  }
+  setCardAlpha(s.cardAlpha ?? 0.78);
+  setAccent(s.accent || '#7c3aed');
+  lucide.createIcons();
+  await loadBuiltinDecks();
+})();
+</script>
+</body>
+</html>
